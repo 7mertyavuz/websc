@@ -2,15 +2,14 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 celery>=5.3
 redis>=5.0
-httpx>=0.27
 beautifulsoup4>=4.12
 pydantic>=2.6
 sqlalchemy>=2.0
-flower>=2.0             # Celery monitoring arayüzü (docker: flower servisi)
+flower>=2.0
+curl_cffi>=0.7.1
 
 # test / geliştirme:
 pytest>=8.0
 
-# PostgreSQL sürücüsü: docker-compose'daki api/worker DATABASE_URL'i
-# postgresql+psycopg2:// kullanır; bu sürücü olmadan Postgres yolu çalışmaz.
+# PostgreSQL sürücüsü
 psycopg2-binary>=2.9
