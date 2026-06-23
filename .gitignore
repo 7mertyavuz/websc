@@ -1,0 +1,37 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.so
+
+# --- Sanal ortam ---
+.env
+.env.*
+.venv/
+venv/
+env/
+
+# --- Proje çıktıları ---
+*.db
+*.sqlite
+*.sqlite3
+scrapehub.db
+*.log
+
+# --- Test & araçlar ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

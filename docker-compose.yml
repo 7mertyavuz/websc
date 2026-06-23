@@ -38,3 +38,15 @@ services:
     depends_on:
       - redis
       - postgres
+
+  # Flower: Celery worker/görev izleme arayüzü -> http://localhost:5555
+  flower:
+    build: .
+    command: celery -A workers.celery_app.celery_app flower --port=5555
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - worker
