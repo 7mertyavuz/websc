@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  # Redis Stack = kuyruk (broker) + RedisBloom (dedup) tek konteynerde
+  redis:
+    image: redis/redis-stack:latest
+    ports:
+      - "6379:6379"
+      - "8001:8001"   # RedisInsight arayüzü
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scrape
+      POSTGRES_PASSWORD: scrape
+      POSTGRES_DB: scrapehub
+    ports:
+      - "5432:5432"
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg2://scrape:scrape@postgres:5432/scrapehub
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - postgres
+
+  worker:
+    build: .
+    command: celery -A workers.celery_app.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg2://scrape:scrape@postgres:5432/scrapehub
+    depends_on:
+      - redis
+      - postgres
