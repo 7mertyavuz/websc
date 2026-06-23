@@ -47,3 +47,48 @@ Bu sürümde, sistemi "lokal test" ortamından "canlı (production)" ortamına t
                                      ┌────────▼──────────┐
                                      │    PostgreSQL     │   Depolama
                                      └───────────────────┘
+Hızlı Başlangıç (Docker ile Tam Dağıtık Mod)
+Sistem artık native PostgreSQL gücü kullandığı için docker-compose ile çalıştırılması zorunludur.
+
+Bash
+docker compose up --build
+Servisler ayağa kalktıktan sonra:
+
+API: http://localhost:8000
+
+Flower (Görev İzleme): http://localhost:5555
+
+Prometheus Metrikleri: http://localhost:8000/metrics
+
+Yeni API anahtarı korumasıyla bir kazıma işi başlatmak için:
+
+Bash
+curl -X POST localhost:8000/scrape \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: BENIM_GIZLI_SIFREM_123" \
+     -d '{"max_pages": 5, "chunk_size": 10}'
+(Not: BENIM_GIZLI_SIFREM_123 değerini kendi .env dosyanıza göre değiştirin).
+
+API Uç Noktaları
+Tüm POST ve GET istekleri yetkilendirme veya izleme odaklıdır. POST isteklerinde header olarak X-API-Key zorunludur.
+
+Uç Nokta	Metot	Açıklama
+/scrape	POST	Katalog tarama işini kuyruğa atar. X-API-Key zorunludur.
+/scrape-one	POST	Tek bir URL'i kazır. force=true verilirse Bloom Filter'ı atlar.
+/status/{task_id}	GET	Celery görev durumunu canlı sorgular.
+/stats	GET	DB'deki kayıt sayısı + dedup backend durumu.
+/health	GET	Derin Health-Check: Redis ve PostgreSQL'e ping atıp 200 veya 503 döner.
+/metrics	GET	Prometheus metrikleri (Başarılı çekim, hata oranları, dead-letter kuyruğu).
+Konfigürasyon ve Proxy Ayarları (.env)
+Aşağıdaki değişkenleri sunucunuzdaki .env dosyasına veya docker-compose.yml içine ekleyebilirsiniz.
+
+Değişken	Default	Açıklama
+API_KEY	BENIM_GIZLI_SIFREM_123	FastAPI endpoints koruma şifresi.
+PROXY_TIER_1	(boş)	Şelale Aşama 1: Datacenter veya Scrapoxy URL'i (Örn: http://localhost:8888)
+PROXY_TIER_2	(boş)	Şelale Aşama 2: Korumalı siteler için Residential / Mobil IP adresi.
+SCRAPE_BASE_URL	books.toscrape.com	Hedef site adresi.
+MAX_CONCURRENCY	4	Worker başına saniyede işlenecek görev limiti.
+INCREMENTAL	false	true ise Bloom filter atlanır, içerik değişimine (hash) bakılır.
+LOG_LEVEL	INFO	Log detay seviyesi (DEBUG, INFO, ERROR).
+Etik & Yasal UYARI
+Bu proje, izin veren hedeflerde (books.toscrape.com) doğru mühendisliği (kuyruk yönetimi, proxy şelalesi, stealth bypass) öğretmek içindir. Altyapı dünyanın en katı WAF'larını aşabilecek güce sahip olsa da, kullanım şartlarını (TOS) ihlal eden hedeflere yönelik izinsiz scraping eylemlerinin hukuki sorumluluğu tamamen kullanıcıya aittir.
