@@ -61,18 +61,21 @@ class Fetcher:
             print(f"[robots] izin yok, atlanıyor: {url}")
             return None
 
+        # Nezaket gecikmesi domain'e özel: bazı siteler için 0.5s, bazıları için 2s vs.
+        delay = settings.request_delay_for(url)
+
         last_err: Optional[Exception] = None
         for attempt in range(1, settings.max_retries + 1):
             try:
                 resp = self._client.get(url)
-                # Nezaket gecikmesi: her istekten sonra biraz bekle.
-                time.sleep(settings.request_delay_sec)
+                # Nezaket gecikmesi: her istekten sonra biraz bekle (domain-bazlı).
+                time.sleep(delay)
 
                 if resp.status_code == 200:
                     return resp.text
                 # 429/503 -> sunucu "yavaşla" diyor, backoff ile saygı göster.
                 if resp.status_code in (429, 503):
-                    wait = settings.request_delay_sec * (2 ** attempt)
+                    wait = delay * (2 ** attempt)
                     print(f"[backoff] {resp.status_code} -> {wait:.1f}s bekle ({url})")
                     time.sleep(wait)
                     continue
@@ -82,7 +85,7 @@ class Fetcher:
                     return None
             except httpx.HTTPError as e:
                 last_err = e
-                wait = settings.request_delay_sec * (2 ** attempt)
+                wait = delay * (2 ** attempt)
                 print(f"[retry {attempt}/{settings.max_retries}] {e!r} -> {wait:.1f}s")
                 time.sleep(wait)
 

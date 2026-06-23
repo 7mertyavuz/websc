@@ -36,10 +36,13 @@ class Deduplicator:
 
     BLOOM_NAME = "scrapehub:seen_urls"
 
+    CHASH_PREFIX = "scrapehub:chash:"
+
     def __init__(self) -> None:
         self._client: Optional["redis.Redis"] = None
         self._mem: set[str] = set()        # fallback
         self._mem_ttl: dict[str, float] = {}
+        self._mem_chash: dict[str, str] = {}   # incremental: url-key -> content hash (fallback)
         self.backend = "memory"
 
         if _redis_available:
@@ -104,6 +107,36 @@ class Deduplicator:
             return True
         self.mark(url)
         return False
+
+    # --- Incremental (artımlı) güncelleme: içerik-hash karşılaştırma ---
+    def content_changed(self, url: str, html: str) -> bool:
+        """
+        Sayfanın İÇERİĞİ son görülenden farklı mı?
+          - Yeni URL ya da içerik değişmiş  -> True  (yeniden işle) + yeni hash'i sakla.
+          - İçerik aynı                      -> False (atla).
+
+        URL-bazlı bloom dedup "bu URL'i hiç gördük mü?" sorusuna bakar; bu metot ise
+        "gördüğümüzden bu yana sayfa değişti mi?" sorusuna bakar (incremental güncelleme).
+        """
+        new_hash = hashlib.sha1(html.encode("utf-8", "ignore")).hexdigest()
+        k = _key(url)
+
+        if self._client is not None:
+            try:
+                rkey = self.CHASH_PREFIX + k
+                prev = self._client.get(rkey)
+                if prev == new_hash:
+                    return False
+                self._client.set(rkey, new_hash, ex=settings.content_hash_ttl_sec)
+                return True
+            except Exception:
+                pass  # redis sorunlu -> memory'e düş
+
+        prev = self._mem_chash.get(k)
+        if prev == new_hash:
+            return False
+        self._mem_chash[k] = new_hash
+        return True
 
 
 # tek paylaşımlı örnek

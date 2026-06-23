@@ -20,6 +20,7 @@ celery_app = Celery(
 
 celery_app.conf.update(
     task_acks_late=True,                 # görev bitince onayla -> çökmede yeniden dene
+    task_reject_on_worker_lost=True,     # worker ölürse görev kaybolmasın, yeniden kuyruğa
     worker_prefetch_multiplier=1,        # adil dağıtım
     task_default_retry_delay=5,
     task_max_retries=settings.max_retries,

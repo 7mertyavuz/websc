@@ -29,6 +29,7 @@ init_db()
 class ScrapeRequest(BaseModel):
     start_url: str | None = None
     max_pages: int = 5
+    chunk_size: int = 10   # >1 ise URL'ler Celery chunks ile gruplanır; <=1 ise tek tek
 
 
 class ScrapeOneRequest(BaseModel):
@@ -43,8 +44,13 @@ def health() -> dict:
 @app.post("/scrape")
 def start_scrape(req: ScrapeRequest) -> dict:
     """Katalog tarama işini kuyruğa atar, görev id'si döndürür."""
-    task = discover_catalog.delay(req.start_url, req.max_pages)
-    return {"task_id": task.id, "queued": True, "max_pages": req.max_pages}
+    task = discover_catalog.delay(req.start_url, req.max_pages, req.chunk_size)
+    return {
+        "task_id": task.id,
+        "queued": True,
+        "max_pages": req.max_pages,
+        "chunk_size": req.chunk_size,
+    }
 
 
 @app.post("/scrape-one")
