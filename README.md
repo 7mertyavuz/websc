@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ScrapeHub — Dağıtık Web Scraping Pipeline (Eğitim Projesi)
 
 Mikroservis mantığıyla çalışan, ölçeklenebilir bir web scraping mimarisi.
@@ -112,3 +113,6 @@ uvicorn app.main:app --reload
 - Başka bir siteye yönlendirirken: kullanım şartlarını, robots.txt'i ve ilgili
   veri koruma mevzuatını (ör. KVKK/GDPR) kontrol et. Anti-bot savunması olan
   sitelerde izinsiz kullanma.
+=======
+# websc
+>>>>>>> 3bb7be5a9f004ccad9f4b1aacca667ea052f3edc
