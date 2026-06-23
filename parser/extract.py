@@ -1,28 +1,28 @@
 """
-Katman 5: Ayrıştırma (Parsing).
+Katman 5: Ayrıştırma (Parsing) — LLM'siz, çok katmanlı dayanıklı çıkarım.
 
-Senin planındaki "HTML -> Markdown -> Pydantic -> kusursuz JSON" fikri burada.
-Senin CarAd modelinin toscrape karşılığı: Book.
+Tasarım felsefesi: "site tasarımı değişse de parser çalışmaya devam etsin, hiçbir API
+anahtarı gerekmesin." Eskiden bir LLM parser'ı vardı; onu kaldırdık. Yerine her alan için
+ÜÇ KADEMELİ bir fallback zinciri koyduk:
 
-İKİ parser sunuyoruz, ikisi de AYNI Pydantic modelini döndürür:
-  1. parse_html()  -> klasik BeautifulSoup ile CSS seçici. Hızlı, ücretsiz, deterministik.
-  2. parse_llm()   -> HTML'i sadeleştirip LLM'e verir, LLM Pydantic şemasına uygun JSON döndürür.
-                      "Site tasarımı değişse de kod patlamasın" senaryosu için.
+  1. Yapısal veri  : JSON-LD (<script type="application/ld+json">) ve og:/meta etiketleri.
+                     Sayfanın görünümünden bağımsız, en sağlam kaynak.
+  2. CSS seçiciler : Aynı alan için BİRDEN FAZLA yedek seçici. Biri kırılırsa diğeri yakalar.
+  3. Regex/pattern : Son çare. Ham metinden desenle çek (ör. "£51.77", "22 available").
 
-Ders için default CSS parser'dır (LLM API anahtarı gerektirmez).
-USE_LLM_PARSER=true yaparsan LLM yoluna geçer.
+Her kademe Optional döndürür; ilk None-olmayan değer kazanır. Böylece tek bir seçici
+değişse bile alan boş kalmaz. Pydantic Book modeli aynen korunur.
 """
 from __future__ import annotations
+import json
 import re
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, field_validator
 
-from core.config import settings
 
-
-# --- Senin CarAd modelinin muadili ---
+# --- Senin CarAd modelinin muadili (DEĞİŞMEDİ) ---
 class Book(BaseModel):
     title: str
     price: float
@@ -37,104 +37,231 @@ class Book(BaseModel):
         return max(0, min(5, v))
 
 
-_RATING_MAP = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5}
+_RATING_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
 
 
-def _clean_price(text: str) -> float:
-    # "£51.77" -> 51.77 ; para birimi simgesi ve gürültüyü at.
-    m = re.search(r"[\d]+\.[\d]+", text.replace(",", ""))
-    return float(m.group()) if m else 0.0
+# ----------------------------------------------------------------------------
+# Yardımcılar: yapısal veri kaynakları
+# ----------------------------------------------------------------------------
+def _load_jsonld(soup: BeautifulSoup) -> list[dict]:
+    """Sayfadaki tüm JSON-LD bloklarını (schema.org) düz bir dict listesine indir."""
+    out: list[dict] = []
+    for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = tag.string or tag.get_text() or ""
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        # JSON-LD tek obje, liste ya da @graph içinde olabilir.
+        candidates = data if isinstance(data, list) else [data]
+        for c in candidates:
+            if isinstance(c, dict):
+                if "@graph" in c and isinstance(c["@graph"], list):
+                    out.extend(g for g in c["@graph"] if isinstance(g, dict))
+                else:
+                    out.append(c)
+    return out
 
 
+def _jsonld_get(jsonld: list[dict], *keys: str) -> Optional[Any]:
+    """JSON-LD objelerinde verilen anahtarlardan ilk bulunanı döndür (iç içe destekli)."""
+    for obj in jsonld:
+        for key in keys:
+            if "." in key:
+                cur: Any = obj
+                for part in key.split("."):
+                    if isinstance(cur, list):
+                        cur = cur[0] if cur else None
+                    if not isinstance(cur, dict):
+                        cur = None
+                        break
+                    cur = cur.get(part)
+                if cur not in (None, ""):
+                    return cur
+            elif obj.get(key) not in (None, ""):
+                return obj[key]
+    return None
+
+
+def _meta(soup: BeautifulSoup, *names: str) -> Optional[str]:
+    """og:/meta etiketlerinden içerik çek (property veya name eşleşmesi)."""
+    for n in names:
+        tag = soup.find("meta", attrs={"property": n}) or soup.find("meta", attrs={"name": n})
+        if tag and tag.get("content", "").strip():
+            return tag["content"].strip()
+    return None
+
+
+def _css_text(soup: BeautifulSoup, *selectors: str) -> Optional[str]:
+    """Sırayla CSS seçicileri dene; ilk metin bulunanı döndür."""
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if el:
+            txt = el.get_text(strip=True)
+            if txt:
+                return txt
+    return None
+
+
+def _first(*chain: Callable[[], Optional[Any]]) -> Optional[Any]:
+    """Fallback zincirini çalıştır: ilk None-olmayan (ve hata fırlatmayan) sonucu döndür."""
+    for fn in chain:
+        try:
+            val = fn()
+        except Exception:
+            val = None
+        if val not in (None, ""):
+            return val
+    return None
+
+
+def _to_price(text: Any) -> Optional[float]:
+    """'£51.77', '51,77 TL', 51.77 -> 51.77."""
+    if text is None:
+        return None
+    if isinstance(text, (int, float)):
+        return float(text)
+    s = str(text).replace(",", ".")
+    m = re.search(r"\d+(?:\.\d+)?", s)
+    return float(m.group()) if m else None
+
+
+def _to_rating(text: Any) -> Optional[int]:
+    """'Three', 'star-rating Three', '4', 4.0 -> int yıldız."""
+    if text is None:
+        return None
+    if isinstance(text, (int, float)):
+        return int(round(float(text)))
+    s = str(text).lower()
+    for word, n in _RATING_WORDS.items():
+        if word in s:
+            return n
+    m = re.search(r"\d+(?:\.\d+)?", s)
+    return int(round(float(m.group()))) if m else None
+
+
+# ----------------------------------------------------------------------------
+# Alan bazlı çıkarım — her biri 3 kademeli fallback
+# ----------------------------------------------------------------------------
+def _extract_title(soup: BeautifulSoup, jsonld: list[dict]) -> Optional[str]:
+    return _first(
+        lambda: _jsonld_get(jsonld, "name", "headline"),                 # 1) yapısal
+        lambda: _meta(soup, "og:title", "title"),
+        lambda: _css_text(soup, "div.product_main h1", ".product_main h1",  # 2) CSS yedekleri
+                          "article h1", "h1"),
+        lambda: _title_from_tag(soup),                                   # 3) <title> fallback
+    )
+
+
+def _title_from_tag(soup: BeautifulSoup) -> Optional[str]:
+    t = soup.find("title")
+    if not t:
+        return None
+    # "Kitap Adı | Books to Scrape" -> "Kitap Adı"
+    return re.split(r"\s*[|\-–]\s*", t.get_text(strip=True))[0] or None
+
+
+def _extract_price(soup: BeautifulSoup, jsonld: list[dict]) -> float:
+    val = _first(
+        lambda: _to_price(_jsonld_get(jsonld, "offers.price", "price")),     # 1)
+        lambda: _to_price(_meta(soup, "product:price:amount", "og:price:amount")),
+        lambda: _to_price(_css_text(soup, "p.price_color", ".price_color",   # 2)
+                                    ".price", "[class*=price]")),
+        lambda: _to_price(_regex_price(soup)),                               # 3)
+    )
+    return float(val) if val is not None else 0.0
+
+
+def _regex_price(soup: BeautifulSoup) -> Optional[str]:
+    # Ham metinde para birimi simgesiyle birlikte fiyat ara.
+    m = re.search(r"[£$€₺]\s?\d+(?:[.,]\d+)?", soup.get_text(" ", strip=True))
+    return m.group() if m else None
+
+
+def _extract_availability(soup: BeautifulSoup, jsonld: list[dict]) -> str:
+    val = _first(
+        lambda: _jsonld_get(jsonld, "offers.availability", "availability"),  # 1)
+        lambda: _css_text(soup, "p.availability", "p.instock", ".availability",  # 2)
+                          "[class*=availab]", "[class*=stock]"),
+        lambda: _regex_availability(soup),                                   # 3)
+    )
+    if not val:
+        return "unknown"
+    # schema.org "http://schema.org/InStock" -> "InStock"
+    return str(val).rsplit("/", 1)[-1].strip()
+
+
+def _regex_availability(soup: BeautifulSoup) -> Optional[str]:
+    txt = soup.get_text(" ", strip=True)
+    m = re.search(r"(In stock(?:\s*\(\d+\s*available\))?|Out of stock|Stokta(?:\s*yok)?)",
+                  txt, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def _extract_rating(soup: BeautifulSoup, jsonld: list[dict]) -> int:
+    val = _first(
+        lambda: _to_rating(_jsonld_get(jsonld, "aggregateRating.ratingValue",  # 1)
+                                       "ratingValue")),
+        lambda: _to_rating(_rating_from_class(soup)),                          # 2)
+        lambda: _to_rating(_meta(soup, "rating")),
+        lambda: _to_rating(_regex_rating(soup)),                              # 3)
+    )
+    return int(val) if val is not None else 0
+
+
+def _rating_from_class(soup: BeautifulSoup) -> Optional[str]:
+    el = soup.select_one("p.star-rating") or soup.select_one("[class*=star-rating]")
+    if el:
+        return " ".join(el.get("class", []))
+    return None
+
+
+def _regex_rating(soup: BeautifulSoup) -> Optional[str]:
+    m = re.search(r"(\d(?:\.\d)?)\s*(?:/|out of)\s*5", soup.get_text(" ", strip=True), re.I)
+    return m.group(1) if m else None
+
+
+def _extract_description(soup: BeautifulSoup, jsonld: list[dict]) -> str:
+    val = _first(
+        lambda: _jsonld_get(jsonld, "description"),                          # 1)
+        lambda: _meta(soup, "og:description", "description"),
+        lambda: _css_text(soup, "#product_description ~ p",                  # 2)
+                          "#product_description + p", "div.product_main p"),
+    )
+    return str(val).strip() if val else ""
+
+
+# ----------------------------------------------------------------------------
+# Genel API (DEĞİŞMEDİ): parse_html() ve parse()
+# ----------------------------------------------------------------------------
 def parse_html(html: str, url: str) -> Optional[Book]:
-    """Klasik, deterministik CSS-seçici parser."""
-    soup = BeautifulSoup(html, "html.parser")
+    """
+    LLM'siz, çok kademeli dayanıklı parser.
+    Her alanı JSON-LD/meta -> çoklu CSS -> regex sırasıyla dener.
+    Title bulunamazsa (sayfa tanınmıyor) None döner.
+    """
     try:
-        title = soup.select_one("div.product_main h1").get_text(strip=True)
+        soup = BeautifulSoup(html, "html.parser")
+        jsonld = _load_jsonld(soup)
 
-        price_el = soup.select_one("p.price_color")
-        price = _clean_price(price_el.get_text()) if price_el else 0.0
-
-        avail_el = soup.select_one("p.availability")
-        availability = avail_el.get_text(strip=True) if avail_el else "unknown"
-
-        rating = 0
-        star = soup.select_one("p.star-rating")
-        if star:
-            for cls in star.get("class", []):
-                if cls in _RATING_MAP:
-                    rating = _RATING_MAP[cls]
-                    break
-
-        desc_el = soup.select_one("#product_description ~ p")
-        description = desc_el.get_text(strip=True) if desc_el else ""
+        title = _extract_title(soup, jsonld)
+        if not title:
+            print(f"[parse] title bulunamadı, atlanıyor: {url}")
+            return None
 
         return Book(
             title=title,
-            price=price,
-            availability=availability,
-            rating=rating,
+            price=_extract_price(soup, jsonld),
+            availability=_extract_availability(soup, jsonld),
+            rating=_extract_rating(soup, jsonld),
             url=url,
-            description=description,
+            description=_extract_description(soup, jsonld),
         )
     except Exception as e:
         print(f"[parse] başarısız {url}: {e!r}")
         return None
 
 
-def html_to_markdown(html: str) -> str:
-    """LLM'e vermeden önce HTML'i sadeleştir (token tasarrufu)."""
-    soup = BeautifulSoup(html, "html.parser")
-    main = soup.select_one("div.product_main") or soup
-    for tag in main(["script", "style"]):
-        tag.decompose()
-    return main.get_text("\n", strip=True)
-
-
-def parse_llm(html: str, url: str) -> Optional[Book]:
-    """
-    LLM tabanlı parser. Site HTML'i değişse bile şemaya sadık JSON üretir.
-    Burada Anthropic API kullanılabilir; anahtar yoksa CSS parser'a düşer.
-
-    NOT: Gerçek çağrı kısmını yorumda bıraktım; anahtar/SDK kurunca açarsın.
-    """
-    try:
-        import os
-        import json
-        import anthropic  # type: ignore
-
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            return parse_html(html, url)
-
-        client = anthropic.Anthropic()
-        content = html_to_markdown(html)
-        schema = Book.model_json_schema()
-
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Aşağıdaki metinden kitap bilgisini çıkar. "
-                    "SADECE şu JSON şemasına uygun, başka hiçbir şey olmadan JSON döndür.\n\n"
-                    f"Şema: {json.dumps(schema)}\n\n"
-                    f"URL: {url}\n\nMetin:\n{content[:4000]}"
-                ),
-            }],
-        )
-        raw = "".join(b.text for b in msg.content if b.type == "text")
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        data = json.loads(raw)
-        data["url"] = url
-        return Book(**data)
-    except Exception as e:
-        print(f"[llm-parse] düştü, CSS parser'a geçiliyor: {e!r}")
-        return parse_html(html, url)
-
-
 def parse(html: str, url: str) -> Optional[Book]:
-    """Konfigürasyona göre doğru parser'ı seçer."""
-    if settings.use_llm_parser:
-        return parse_llm(html, url)
+    """Tek giriş noktası. Artık tek, dayanıklı, LLM'siz parser var."""
     return parse_html(html, url)
