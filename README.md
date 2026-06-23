@@ -8,6 +8,9 @@ Bu proje bir **mühendislik mimarisini** öğretmek için yazıldı: asenkron ku
 worker dağıtımı, tekilleştirme (deduplication), retry/backoff ve şemaya dayalı
 parsing. Aynı iskelet, izin veren herhangi bir site veya açık API için kullanılabilir.
 
+> 📖 **Projeyi sıfırdan, derinlemesine anlamak için → [DOKUMANTASYON.md](DOKUMANTASYON.md)**
+> (her katman, her dosya, veri akışı ve tasarım kararları bol açıklamayla anlatılır.)
+
 ## Mimari (5 katman)
 
 ```
