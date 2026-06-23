@@ -1,32 +1,19 @@
 """
-Katman 3 + 4: Ağ ve İndirme.
-
-Senin planında burası "proxy şelalesi + stealth tarayıcı + Datadome bypass" idi.
-İzin veren bir hedefte (toscrape) bunların HİÇBİRİNE gerek yok. Onun yerine
-sağlam mühendislik pratikleri koyuyoruz:
-
-  - httpx ile basit, hızlı, async-uyumlu istekler
-  - Üstel artan bekleme (exponential backoff) ile retry
-  - İstekler arası nezaket gecikmesi (sunucuyu yormamak)
-  - robots.txt kontrolü (izin verilen path mi?)
-
-Bu, "scraping'i doğru yapmak" demek. Aynı retry/backoff/rate-limit mantığı
-herhangi bir açık API ya da izin veren sitede de geçerli.
+Katman 3 + 4: Ağ, Stealth Bypass ve Proxy Şelalesi (Waterfall).
 """
 from __future__ import annotations
 import time
 import urllib.robotparser as robotparser
 from functools import lru_cache
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
-import httpx
+from curl_cffi import requests
 
 from core.config import settings
 from core.logging import get_logger
 
 logger = get_logger(__name__)
-
 
 @lru_cache(maxsize=1)
 def _robot_parser() -> robotparser.RobotFileParser:
@@ -39,65 +26,81 @@ def _robot_parser() -> robotparser.RobotFileParser:
         pass
     return rp
 
-
 def allowed_by_robots(url: str) -> bool:
     if not settings.respect_robots:
         return True
     try:
-        return _robot_parser().can_fetch(settings.user_agent, url)
+        return _robot_parser().can_fetch("*", url) # Stealth için wildcard
     except Exception:
-        return True  # robots okunamazsa engelleme, ama nazik davran
-
+        return True
 
 class Fetcher:
-    """Tek bir sayfayı nazikçe indiren retry'lı istemci."""
-
-    def __init__(self) -> None:
-        self._client = httpx.Client(
-            headers={"User-Agent": settings.user_agent},
-            timeout=settings.request_timeout,
-            follow_redirects=True,
-        )
-
     def get(self, url: str) -> Optional[str]:
         if not allowed_by_robots(url):
             logger.warning("[robots] izin yok, atlanıyor: %s", url)
             return None
 
-        # Nezaket gecikmesi domain'e özel: bazı siteler için 0.5s, bazıları için 2s vs.
         delay = settings.request_delay_for(url)
-
         last_err: Optional[Exception] = None
+
+        # --- PROXY ŞELALESİ (WATERFALL) ---
+        waterfall_tiers = [(None, "chrome120")] # Tier 0: Kendi IP'miz
+        
+        if settings.proxy_tier_1:
+            waterfall_tiers.append((settings.proxy_tier_1, "chrome120"))
+        if settings.proxy_tier_2:
+            waterfall_tiers.append((settings.proxy_tier_2, "safari15_3"))
+
+        current_tier_idx = 0
+
         for attempt in range(1, settings.max_retries + 1):
+            current_proxy, impersonate_browser = waterfall_tiers[current_tier_idx]
+            proxies = {"http": current_proxy, "https": current_proxy} if current_proxy else None
+
             try:
-                resp = self._client.get(url)
-                # Nezaket gecikmesi: her istekten sonra biraz bekle (domain-bazlı).
+                resp = requests.get(
+                    url,
+                    impersonate=impersonate_browser,
+                    proxies=proxies,
+                    timeout=settings.request_timeout
+                )
                 time.sleep(delay)
 
                 if resp.status_code == 200:
                     return resp.text
-                # 429/503 -> sunucu "yavaşla" diyor, backoff ile saygı göster.
-                if resp.status_code in (429, 503):
-                    wait = delay * (2 ** attempt)
-                    logger.warning("[backoff] %s -> %.1fs bekle (%s)", resp.status_code, wait, url)
-                    time.sleep(wait)
+
+                # WAF Engeliyse proxy yükselt (403/429/503)
+                if resp.status_code in (403, 429, 503):
+                    logger.warning("[WAF Block] %s %s", resp.status_code, url)
+                    if current_tier_idx < len(waterfall_tiers) - 1:
+                        current_tier_idx += 1
+                        logger.info("Proxy seviyesi artırıldı -> Tier %d", current_tier_idx)
+                    else:
+                        wait = delay * (2 ** attempt)
+                        logger.warning("Tüm proxyler banlandı, %.1fs bekleniyor...", wait)
+                        time.sleep(wait)
                     continue
-                # Diğer 4xx: tekrar denemeye değmez.
+
                 if 400 <= resp.status_code < 500:
                     logger.warning("[skip] %s %s", resp.status_code, url)
                     return None
-            except httpx.HTTPError as e:
+
+            except requests.RequestsError as e:
                 last_err = e
-                wait = delay * (2 ** attempt)
-                logger.warning("[retry %d/%d] %r -> %.1fs", attempt, settings.max_retries, e, wait)
-                time.sleep(wait)
+                # Ağ Hatası olursa da Proxy yükselt
+                if current_tier_idx < len(waterfall_tiers) - 1:
+                    current_tier_idx += 1
+                    logger.info("Proxy Bağlantı Hatası -> Tier %d geçiliyor", current_tier_idx)
+                else:
+                    wait = delay * (2 ** attempt)
+                    logger.warning("[retry %d/%d] Ağ Hatası -> %.1fs", attempt, settings.max_retries, wait)
+                    time.sleep(wait)
 
         if last_err:
             logger.error("[fail] %s: %r", url, last_err)
         return None
 
     def close(self) -> None:
-        self._client.close()
-
+        pass
 
 fetcher = Fetcher()
