@@ -21,32 +21,6 @@ Bu sürümde, sistemi "lokal test" ortamından "canlı (production)" ortamına t
 5. **🎯 Force (Zorla) Parametresi:** Bloom Filter (Tekilleştirme) bir URL'yi gördüğünde bir daha çekmiyordu. Artık API'den `force=True` göndererek istediğiniz ilanı zorla güncelletebilirsiniz.
 
 ---
-
-## Mimari (5 Katmanlı)
-
-```text
-  ┌──────────────┐   POST /scrape    ┌──────────────────┐
-  │   İstemci /   │ ───────────────► │  FastAPI (API)   │   Katman 1: Orkestratör
-  │   Cron job    │  (X-API-Key)     │   app/main.py    │
-  └──────────────┘                  └────────┬─────────┘
-                                              │ .delay()
-                                     ┌────────▼─────────┐
-                                     │  Redis (broker)  │   Katman 1: Kuyruk
-                                     └────────┬─────────┘
-                                              │
-                              ┌───────────────▼───────────────┐
-                              │   Celery Workers (xN)         │
-                              │   workers/tasks.py            │
-                              │                               │
-                              │  1. Dedup  (Bloom Filter)     │◄─ Katman 2
-                              │  2. Fetch  (Stealth + Proxy)  │◄─ Katman 3+4
-                              │  3. Parse  (Çok Kademeli)     │◄─ Katman 5
-                              │  4. Store  (ON CONFLICT)      │
-                              └───────────────┬───────────────┘
-                                              │
-                                     ┌────────▼──────────┐
-                                     │    PostgreSQL     │   Depolama
-                                     └───────────────────┘
 Hızlı Başlangıç (Docker ile Tam Dağıtık Mod)
 Sistem artık native PostgreSQL gücü kullandığı için docker-compose ile çalıştırılması zorunludur.
 
@@ -92,3 +66,29 @@ INCREMENTAL	false	true ise Bloom filter atlanır, içerik değişimine (hash) ba
 LOG_LEVEL	INFO	Log detay seviyesi (DEBUG, INFO, ERROR).
 Etik & Yasal UYARI
 Bu proje, izin veren hedeflerde (books.toscrape.com) doğru mühendisliği (kuyruk yönetimi, proxy şelalesi, stealth bypass) öğretmek içindir. Altyapı dünyanın en katı WAF'larını aşabilecek güce sahip olsa da, kullanım şartlarını (TOS) ihlal eden hedeflere yönelik izinsiz scraping eylemlerinin hukuki sorumluluğu tamamen kullanıcıya aittir.
+
+## Mimari (5 Katmanlı)
+
+```text
+  ┌──────────────┐   POST /scrape    ┌──────────────────┐
+  │   İstemci /   │ ───────────────► │  FastAPI (API)   │   Katman 1: Orkestratör
+  │   Cron job    │  (X-API-Key)     │   app/main.py    │
+  └──────────────┘                  └────────┬─────────┘
+                                              │ .delay()
+                                     ┌────────▼─────────┐
+                                     │  Redis (broker)  │   Katman 1: Kuyruk
+                                     └────────┬─────────┘
+                                              │
+                              ┌───────────────▼───────────────┐
+                              │   Celery Workers (xN)         │
+                              │   workers/tasks.py            │
+                              │                               │
+                              │  1. Dedup  (Bloom Filter)     │◄─ Katman 2
+                              │  2. Fetch  (Stealth + Proxy)  │◄─ Katman 3+4
+                              │  3. Parse  (Çok Kademeli)     │◄─ Katman 5
+                              │  4. Store  (ON CONFLICT)      │
+                              └───────────────┬───────────────┘
+                                              │
+                                     ┌────────▼──────────┐
+                                     │    PostgreSQL     │   Depolama
+                                     └───────────────────┘
