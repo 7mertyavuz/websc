@@ -272,7 +272,8 @@ kaynaktan bulamazsa (sayfa tanınmıyor) `None` döner ve görev `parse_failed` 
 - **SQLAlchemy** ile veritabanı soyutlanır. `DATABASE_URL` Postgres'e işaret ediyorsa
   Postgres, etmiyorsa **SQLite** kullanılır. Böylece repoyu klonlayan kişi **sıfır kurulumla**
   (SQLite ile) çalıştırır; prodüksiyonda tek satır env değiştirip Postgres'e geçer.
-- `BookRow` tablosunda `url` üzerinde **`UniqueConstraint`** var → aynı URL iki kez yazılamaz.
+- `BookRow` tablosunda `url` üzerinde tek bir **unique index** (`ix_books_url`) var → aynı URL
+  iki kez yazılamaz **ve** upsert'teki `WHERE url = ?` araması indeksli/hızlı olur.
 - **`upsert_book(book)`:** URL'e göre "upsert" — satır varsa **günceller**, yoksa **ekler**.
   Bu sayede aynı kitabı tekrar işlersen DB'de **duplicate satır oluşmaz**, sadece güncellenir.
 

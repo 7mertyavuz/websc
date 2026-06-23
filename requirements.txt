@@ -11,5 +11,6 @@ flower>=2.0             # Celery monitoring arayüzü (docker: flower servisi)
 # test / geliştirme:
 pytest>=8.0
 
-# opsiyonel:
-# psycopg2-binary>=2.9   # PostgreSQL için
+# PostgreSQL sürücüsü: docker-compose'daki api/worker DATABASE_URL'i
+# postgresql+psycopg2:// kullanır; bu sürücü olmadan Postgres yolu çalışmaz.
+psycopg2-binary>=2.9

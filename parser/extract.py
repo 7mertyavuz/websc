@@ -21,6 +21,10 @@ from typing import Any, Callable, Optional
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, field_validator
 
+from core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 # --- Senin CarAd modelinin muadili (DEĞİŞMEDİ) ---
 class Book(BaseModel):
@@ -246,7 +250,7 @@ def parse_html(html: str, url: str) -> Optional[Book]:
 
         title = _extract_title(soup, jsonld)
         if not title:
-            print(f"[parse] title bulunamadı, atlanıyor: {url}")
+            logger.warning("[parse] title bulunamadı, atlanıyor: %s", url)
             return None
 
         return Book(
@@ -258,7 +262,7 @@ def parse_html(html: str, url: str) -> Optional[Book]:
             description=_extract_description(soup, jsonld),
         )
     except Exception as e:
-        print(f"[parse] başarısız {url}: {e!r}")
+        logger.error("[parse] başarısız %s: %r", url, e)
         return None
 
 

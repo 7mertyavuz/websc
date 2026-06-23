@@ -31,6 +31,11 @@ class Settings:
     )
     respect_robots: bool = os.getenv("RESPECT_ROBOTS", "true").lower() == "true"
 
+    # --- Logging ---
+    # Seviye: DEBUG/INFO/WARNING/ERROR. Dosya yolu verilirse konsola ek olarak dosyaya da yazılır.
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    log_file: str = os.getenv("LOG_FILE", "")
+
     # --- Redis (kuyruk + bloom filter) ---
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 

@@ -17,8 +17,12 @@ from celery import shared_task, Task
 from core.config import settings
 from core.dedup import dedup
 from core.fetcher import fetcher
+from core.logging import get_logger
+from core.metrics import metrics
 from parser.extract import parse
 from storage.db import init_db, upsert_book
+
+logger = get_logger(__name__)
 
 init_db()
 
@@ -46,7 +50,7 @@ def push_dead_letter(payload: dict) -> None:
             return
         except Exception:
             pass
-    print(f"[dead-letter] {data}")
+    logger.error("[dead-letter] %s", data)
 
 
 class DeadLetterTask(Task):
@@ -89,6 +93,7 @@ def scrape_book(self, url: str) -> dict:
         # Incremental: içerik karşılaştırması için önce çekmemiz gerekir.
         html = fetcher.get(url)
         if not html:
+            metrics.inc("failed_fetch")
             raise FetchError(f"fetch failed (incremental): {url}")
         if not dedup.content_changed(url, html):
             dedup.mark(url)
@@ -98,6 +103,7 @@ def scrape_book(self, url: str) -> dict:
             return {"url": url, "status": "parse_failed"}
         upsert_book(book)
         dedup.mark(url)
+        metrics.inc("pages_processed")
         return {"url": url, "status": "updated", "title": book.title, "price": book.price}
 
     # Klasik mod (default davranış).
@@ -108,6 +114,7 @@ def scrape_book(self, url: str) -> dict:
     # 2. Fetch (nazik, retry'lı). Başarısızsa FetchError -> autoretry -> (tükenirse) dead-letter.
     html = fetcher.get(url)
     if not html:
+        metrics.inc("failed_fetch")
         raise FetchError(f"fetch failed: {url}")
 
     # 3. Parse.
@@ -117,6 +124,7 @@ def scrape_book(self, url: str) -> dict:
 
     # 4. Kaydet.
     upsert_book(book)
+    metrics.inc("pages_processed")
     return {"url": url, "status": "ok", "title": book.title, "price": book.price}
 
 

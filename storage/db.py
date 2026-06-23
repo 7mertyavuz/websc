@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import Column, Float, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import Column, Float, Integer, String, Text, create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from core.config import settings
@@ -26,9 +26,10 @@ class BookRow(Base):
     price = Column(Float, nullable=False, default=0.0)
     availability = Column(String(128))
     rating = Column(Integer, default=0)
-    url = Column(String(1024), nullable=False)
+    # url üzerinde tek bir UNIQUE index: hem aynı URL'in iki kez yazılmasını engeller
+    # hem de upsert'teki "WHERE url = ?" aramasını indeksli/hızlı yapar (ix_books_url).
+    url = Column(String(1024), nullable=False, unique=True, index=True)
     description = Column(Text, default="")
-    __table_args__ = (UniqueConstraint("url", name="uq_book_url"),)
 
 
 _engine = create_engine(settings.database_url, future=True)
@@ -69,3 +70,10 @@ def upsert_book(book: Book) -> None:
 def count_books() -> int:
     with session_scope() as s:
         return s.query(BookRow).count()
+
+
+def ping_db() -> bool:
+    """DB'ye gerçekten bağlanılabiliyor mu? Basit bir 'SELECT 1' ile doğrula."""
+    with _engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    return True

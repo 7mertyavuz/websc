@@ -23,6 +23,9 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from core.config import settings
+from core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -58,7 +61,7 @@ class Fetcher:
 
     def get(self, url: str) -> Optional[str]:
         if not allowed_by_robots(url):
-            print(f"[robots] izin yok, atlanıyor: {url}")
+            logger.warning("[robots] izin yok, atlanıyor: %s", url)
             return None
 
         # Nezaket gecikmesi domain'e özel: bazı siteler için 0.5s, bazıları için 2s vs.
@@ -76,21 +79,21 @@ class Fetcher:
                 # 429/503 -> sunucu "yavaşla" diyor, backoff ile saygı göster.
                 if resp.status_code in (429, 503):
                     wait = delay * (2 ** attempt)
-                    print(f"[backoff] {resp.status_code} -> {wait:.1f}s bekle ({url})")
+                    logger.warning("[backoff] %s -> %.1fs bekle (%s)", resp.status_code, wait, url)
                     time.sleep(wait)
                     continue
                 # Diğer 4xx: tekrar denemeye değmez.
                 if 400 <= resp.status_code < 500:
-                    print(f"[skip] {resp.status_code} {url}")
+                    logger.warning("[skip] %s %s", resp.status_code, url)
                     return None
             except httpx.HTTPError as e:
                 last_err = e
                 wait = delay * (2 ** attempt)
-                print(f"[retry {attempt}/{settings.max_retries}] {e!r} -> {wait:.1f}s")
+                logger.warning("[retry %d/%d] %r -> %.1fs", attempt, settings.max_retries, e, wait)
                 time.sleep(wait)
 
         if last_err:
-            print(f"[fail] {url}: {last_err!r}")
+            logger.error("[fail] %s: %r", url, last_err)
         return None
 
     def close(self) -> None:
