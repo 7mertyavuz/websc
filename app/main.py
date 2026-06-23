@@ -1,20 +1,11 @@
 """
 Katman 1: API Gateway (FastAPI).
-
-Senin planındaki orkestratör. Kullanıcı/cron buraya istek atar,
-FastAPI işi Celery kuyruğuna devreder ve hemen döner (async, non-blocking).
-
-Endpoint'ler:
-  POST /scrape       -> bir kazıma işi başlat (katalogu gez)
-  GET  /status/{id}  -> Celery görev durumunu sorgula
-  GET  /stats        -> DB'deki kitap sayısı + dedup backend bilgisi
-  GET  /health       -> ayakta mı?
-
-Celery ayakta olmasa da API import edilebilsin; gerçek dağıtım .delay() anında olur.
+X-API-Key ile korunmaktadır.
 """
 from __future__ import annotations
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, Security
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 
 from core.config import settings
@@ -26,25 +17,30 @@ from workers.tasks import discover_catalog, scrape_book
 
 logger = get_logger(__name__)
 
-app = FastAPI(title="ScrapeHub", version="1.0", description="Eğitim amaçlı dağıtık scraping pipeline")
+app = FastAPI(title="ScrapeHub", version="1.0", description="Kurumsal Web Scraping Pipeline")
 
 init_db()
 
+# --- Güvenlik ---
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+def verify_api_key(api_key: str = Security(api_key_header)):
+    if api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Geçersiz yetki (X-API-Key hatalı)")
+    return api_key
 
 class ScrapeRequest(BaseModel):
     start_url: str | None = None
     max_pages: int = 5
-    chunk_size: int = 10   # >1 ise URL'ler Celery chunks ile gruplanır; <=1 ise tek tek
-
+    chunk_size: int = 10
 
 class ScrapeOneRequest(BaseModel):
     url: str
-
+    force: bool = False # Bloom filter atlamak için
 
 def _check_redis() -> dict:
-    """Redis'e gerçekten PING atıp bağlanabildiğimizi doğrula."""
     try:
-        import redis  # lazy import: redis kurulu değilse de API ayağa kalksın
+        import redis
     except ImportError as e:
         return {"status": "fail", "error": f"redis client yok: {e!r}"}
     try:
@@ -54,22 +50,15 @@ def _check_redis() -> dict:
     except Exception as e:
         return {"status": "fail", "error": repr(e)}
 
-
 def _check_db() -> dict:
-    """DB'ye gerçekten 'SELECT 1' atıp bağlanabildiğimizi doğrula."""
     try:
         ping_db()
         return {"status": "ok"}
     except Exception as e:
         return {"status": "fail", "error": repr(e)}
 
-
 @app.get("/health")
 def health() -> JSONResponse:
-    """
-    Derin health-check: 'ayakta mı' yetmez; Redis'e ve DB'ye GERÇEKTEN bağlanabiliyor
-    muyuz onu döndürür. Bağımlılıklardan biri bile fail ise HTTP 503, hepsi ok ise 200.
-    """
     checks = {"redis": _check_redis(), "database": _check_db()}
     all_ok = all(c["status"] == "ok" for c in checks.values())
     body = {
@@ -82,10 +71,8 @@ def health() -> JSONResponse:
         logger.warning("health-check degraded: %s", checks)
     return JSONResponse(status_code=200 if all_ok else 503, content=body)
 
-
 @app.post("/scrape")
-def start_scrape(req: ScrapeRequest) -> dict:
-    """Katalog tarama işini kuyruğa atar, görev id'si döndürür."""
+def start_scrape(req: ScrapeRequest, api_key: str = Depends(verify_api_key)) -> dict:
     task = discover_catalog.delay(req.start_url, req.max_pages, req.chunk_size)
     return {
         "task_id": task.id,
@@ -94,13 +81,10 @@ def start_scrape(req: ScrapeRequest) -> dict:
         "chunk_size": req.chunk_size,
     }
 
-
 @app.post("/scrape-one")
-def scrape_single(req: ScrapeOneRequest) -> dict:
-    """Tek bir URL'i kuyruğa atar."""
-    task = scrape_book.delay(req.url)
-    return {"task_id": task.id, "queued": True, "url": req.url}
-
+def scrape_single(req: ScrapeOneRequest, api_key: str = Depends(verify_api_key)) -> dict:
+    task = scrape_book.delay(req.url, req.force)
+    return {"task_id": task.id, "queued": True, "url": req.url, "forced": req.force}
 
 @app.get("/status/{task_id}")
 def status(task_id: str) -> dict:
@@ -108,20 +92,10 @@ def status(task_id: str) -> dict:
     res = celery_app.AsyncResult(task_id)
     return {"task_id": task_id, "state": res.state, "result": res.result if res.ready() else None}
 
-
 @app.get("/stats")
 def stats() -> dict:
     return {"books_in_db": count_books(), "dedup_backend": dedup.backend}
 
-
 @app.get("/metrics", response_class=PlainTextResponse)
 def prometheus_metrics() -> PlainTextResponse:
-    """
-    Prometheus text exposition formatında metrikler:
-      - scrapehub_pages_processed_total  (counter) işlenen sayfa
-      - scrapehub_failed_fetch_total     (counter) başarısız fetch
-      - scrapehub_dead_letter_depth      (gauge)   dead-letter kuyruk derinliği
-      - scrapehub_db_books               (gauge)   DB'deki kayıt sayısı
-    Sayaçlar Redis'te paylaşımlıdır (API + worker'lar aynı değeri görür).
-    """
     return PlainTextResponse(content=metrics.render(), media_type="text/plain; version=0.0.4")
