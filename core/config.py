@@ -9,8 +9,6 @@ from urllib.parse import urlparse
 @dataclass
 class Settings:
     base_url: str = os.getenv("SCRAPE_BASE_URL", "https://books.toscrape.com/")
-    
-    # --- Güvenlik ve Proxy ---
     api_key: str = os.getenv("API_KEY", "BENIM_GIZLI_SIFREM_123")
     proxy_tier_1: str = os.getenv("PROXY_TIER_1", "") 
     proxy_tier_2: str = os.getenv("PROXY_TIER_2", "") 
@@ -20,7 +18,7 @@ class Settings:
     max_concurrency: int = int(os.getenv("MAX_CONCURRENCY", "4"))
     request_timeout: float = float(os.getenv("REQUEST_TIMEOUT", "20"))
     max_retries: int = int(os.getenv("MAX_RETRIES", "3"))
-    user_agent: str = os.getenv("USER_AGENT", "ScrapeHub-Educational/1.0")
+    user_agent: str = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
     respect_robots: bool = os.getenv("RESPECT_ROBOTS", "true").lower() == "true"
 
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -36,6 +34,12 @@ class Settings:
     incremental: bool = os.getenv("INCREMENTAL", "false").lower() == "true"
     content_hash_ttl_sec: int = int(os.getenv("CONTENT_HASH_TTL", str(60 * 60 * 24 * 7)))
 
+    # --- YENİ EKLENENLER (Konu 1, 2, 3, 5) ---
+    browserless_url: str = os.getenv("BROWSERLESS_URL", "ws://localhost:3000")
+    capsolver_key: str = os.getenv("CAPSOLVER_KEY", "") # Opsiyonel
+    ollama_url: str = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+    jaeger_endpoint: str = os.getenv("JAEGER_ENDPOINT", "http://localhost:4318/v1/traces")
+
     def __post_init__(self) -> None:
         self.domain_delays: dict[str, float] = self._parse_domain_delays(self.domain_delays_raw)
 
@@ -47,9 +51,8 @@ class Settings:
             if not part or ":" not in part:
                 continue
             domain, _, val = part.rpartition(":")
-            domain = domain.strip().lower()
             try:
-                result[domain] = float(val.strip())
+                result[domain.strip().lower()] = float(val.strip())
             except ValueError:
                 continue
         return result
