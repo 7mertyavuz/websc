@@ -13,6 +13,9 @@ from core.dedup import dedup
 from core.logging import get_logger
 from core.metrics import metrics
 from storage.db import count_books, init_db, ping_db
+
+# --- İŞTE HAYAT KURTARAN O SATIR: API'nin Redis'i tanıması için ---
+from workers.celery_app import celery_app
 from workers.tasks import discover_catalog, scrape_book
 
 # --- KONU 5: FastAPI Dağıtık İzleme Kurulumu ---
@@ -63,7 +66,6 @@ def scrape_single(req: ScrapeOneRequest, api_key: str = Depends(verify_api_key))
 
 @app.get("/status/{task_id}")
 def status(task_id: str) -> dict:
-    from workers.celery_app import celery_app
     res = celery_app.AsyncResult(task_id)
     return {"task_id": task_id, "state": res.state}
 
