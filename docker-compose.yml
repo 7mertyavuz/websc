@@ -1,12 +1,11 @@
 version: "3.9"
 
 services:
-  # Redis Stack = kuyruk (broker) + RedisBloom (dedup) tek konteynerde
   redis:
     image: redis/redis-stack:latest
     ports:
       - "6379:6379"
-      - "8001:8001"   # RedisInsight arayüzü
+      - "8001:8001"
 
   postgres:
     image: postgres:16-alpine
@@ -17,17 +16,38 @@ services:
     ports:
       - "5432:5432"
 
+  # Konu 1 & 2: JavaScript render ve WAF bypass için Headless Chrome
+  browserless:
+    image: browserless/chrome:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+
+  # Konu 5: Dağıtık İzleme (Distributed Tracing) Arayüzü
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686" # Web UI
+      - "4318:4318"   # OTLP HTTP Alıcı
+
   api:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+psycopg2://scrape:scrape@postgres:5432/scrapehub
+      JAEGER_ENDPOINT: http://jaeger:4318/v1/traces
+      BROWSERLESS_URL: ws://browserless:3000
+      OLLAMA_URL: http://host.docker.internal:11434  # Kendi bilgisayarındaki Llama'ya bağlanır
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis
       - postgres
+      - jaeger
 
   worker:
     build: .
@@ -35,11 +55,17 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+psycopg2://scrape:scrape@postgres:5432/scrapehub
+      JAEGER_ENDPOINT: http://jaeger:4318/v1/traces
+      BROWSERLESS_URL: ws://browserless:3000
+      OLLAMA_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis
       - postgres
+      - browserless
+      - jaeger
 
-  # Flower: Celery worker/görev izleme arayüzü -> http://localhost:5555
   flower:
     build: .
     command: celery -A workers.celery_app.celery_app flower --port=5555
