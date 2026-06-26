@@ -1,16 +1,16 @@
 """
 Katman 1: Kuyruk yönetimi (Celery + Redis).
-
-FastAPI'den gelen "şu sayfaları kaz" emrini alır, worker'lara dağıtır.
-Bir worker çökerse Celery görevi başka worker'a devreder (acks_late).
-
-Redis ayakta değilse bile import patlamasın diye broker/backend lazy bağlanır;
-worker başlatıldığında gerçek bağlantı kurulur.
 """
 from __future__ import annotations
 from celery import Celery
-
 from core.config import settings
+from core.tracing import setup_tracing
+
+# Worker için Dağıtık İzleme (Tracing) başlat
+setup_tracing("scrapehub-worker")
+
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
+CeleryInstrumentor().instrument()
 
 celery_app = Celery(
     "scrapehub",
@@ -19,17 +19,15 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
-    task_acks_late=True,                 # görev bitince onayla -> çökmede yeniden dene
-    task_reject_on_worker_lost=True,     # worker ölürse görev kaybolmasın, yeniden kuyruğa
-    worker_prefetch_multiplier=1,        # adil dağıtım
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    worker_prefetch_multiplier=1,
     task_default_retry_delay=5,
     task_max_retries=settings.max_retries,
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    # Aynı anda çok agresif olmamak için worker tarafı rate limit:
     task_default_rate_limit=f"{settings.max_concurrency * 2}/s",
 )
 
-# task'ların keşfedilmesi
 celery_app.autodiscover_tasks(["workers"])
