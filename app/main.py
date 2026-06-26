@@ -14,11 +14,9 @@ from core.logging import get_logger
 from core.metrics import metrics
 from storage.db import count_books, init_db, ping_db
 
-# --- İŞTE HAYAT KURTARAN O SATIR: API'nin Redis'i tanıması için ---
+# Sisteme doğrudan ana Celery uygulamamızı tanıtıyoruz
 from workers.celery_app import celery_app
-from workers.tasks import discover_catalog, scrape_book
 
-# --- KONU 5: FastAPI Dağıtık İzleme Kurulumu ---
 from core.tracing import setup_tracing
 setup_tracing("scrapehub-api")
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -26,7 +24,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 logger = get_logger(__name__)
 
 app = FastAPI(title="ScrapeHub AI", version="2.0", description="Otonom Web Scraping Pipeline")
-FastAPIInstrumentor.instrument_app(app) # İzlemeyi aktif et
+FastAPIInstrumentor.instrument_app(app)
 
 init_db()
 
@@ -41,7 +39,7 @@ class ScrapeRequest(BaseModel):
     start_url: str | None = None
     max_pages: int = 5
     chunk_size: int = 10
-    webhook_url: str | None = None  # İşlem bitince haberdar et
+    webhook_url: str | None = None
 
 class ScrapeOneRequest(BaseModel):
     url: str
@@ -49,19 +47,40 @@ class ScrapeOneRequest(BaseModel):
 
 @app.post("/scrape")
 def start_scrape(req: ScrapeRequest, api_key: str = Depends(verify_api_key)) -> dict:
-    """Geleneksel, hızlı ve ucuz kazıma yapar."""
-    task = discover_catalog.delay(req.start_url, req.max_pages, req.chunk_size, req.webhook_url, use_ai=False)
+    # .delay yerine doğrudan send_task ile Redis'e zorluyoruz
+    task = celery_app.send_task(
+        "workers.discover_catalog",
+        kwargs={
+            "start_url": req.start_url,
+            "max_pages": req.max_pages,
+            "chunk_size": req.chunk_size,
+            "webhook_url": req.webhook_url,
+            "use_ai": False
+        }
+    )
     return {"task_id": task.id, "queued": True, "type": "standard"}
 
 @app.post("/scrape-dynamic")
 def start_dynamic_scrape(req: ScrapeRequest, api_key: str = Depends(verify_api_key)) -> dict:
-    """(YENİ) Browserless ile sayfayı açar, Local Llama ile AI JSON ayrıştırması yapar."""
-    task = discover_catalog.delay(req.start_url, req.max_pages, req.chunk_size, req.webhook_url, use_ai=True)
+    # AI işlemi için zorla Redis'e gönderiyoruz
+    task = celery_app.send_task(
+        "workers.discover_catalog",
+        kwargs={
+            "start_url": req.start_url,
+            "max_pages": req.max_pages,
+            "chunk_size": req.chunk_size,
+            "webhook_url": req.webhook_url,
+            "use_ai": True
+        }
+    )
     return {"task_id": task.id, "queued": True, "type": "ai_agentic"}
 
 @app.post("/scrape-one")
 def scrape_single(req: ScrapeOneRequest, api_key: str = Depends(verify_api_key)) -> dict:
-    task = scrape_book.delay(req.url, req.force, use_ai=False)
+    task = celery_app.send_task(
+        "workers.scrape_book",
+        kwargs={"url": req.url, "force": req.force, "use_ai": False}
+    )
     return {"task_id": task.id, "queued": True, "url": req.url}
 
 @app.get("/status/{task_id}")
