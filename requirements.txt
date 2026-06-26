@@ -7,9 +7,16 @@ pydantic>=2.6
 sqlalchemy>=2.0
 flower>=2.0
 curl_cffi>=0.7.1
+playwright>=1.41.0
+requests>=2.31.0
 
-# test / geliştirme:
+# OpenTelemetry (Dağıtık İzleme - Jaeger için)
+opentelemetry-api>=1.22.0
+opentelemetry-sdk>=1.22.0
+opentelemetry-exporter-otlp>=1.22.0
+opentelemetry-instrumentation-fastapi>=0.43b0
+opentelemetry-instrumentation-celery>=0.43b0
+
+# Test / Geliştirme:
 pytest>=8.0
-
-# PostgreSQL sürücüsü
 psycopg2-binary>=2.9
