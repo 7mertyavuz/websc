@@ -16,7 +16,7 @@ services:
     ports:
       - "5432:5432"
 
-  # Konu 1 & 2: JavaScript render ve WAF bypass için Headless Chrome
+  # JavaScript render ve WAF bypass için Headless Chrome
   browserless:
     image: browserless/chrome:latest
     ports:
@@ -24,7 +24,7 @@ services:
     environment:
       - MAX_CONCURRENT_SESSIONS=10
 
-  # Konu 5: Dağıtık İzleme (Distributed Tracing) Arayüzü
+  # Dağıtık İzleme (Distributed Tracing) Arayüzü
   jaeger:
     image: jaegertracing/all-in-one:latest
     ports:
@@ -35,11 +35,12 @@ services:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
+      PYTHONPATH: /app   # DOSYALARI BULMASI İÇİN EKLENDİ
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+psycopg2://scrape:scrape@postgres:5432/scrapehub
       JAEGER_ENDPOINT: http://jaeger:4318/v1/traces
       BROWSERLESS_URL: ws://browserless:3000
-      OLLAMA_URL: http://host.docker.internal:11434  # Kendi bilgisayarındaki Llama'ya bağlanır
+      OLLAMA_URL: http://host.docker.internal:11434  
     ports:
       - "8000:8000"
     extra_hosts:
@@ -53,6 +54,7 @@ services:
     build: .
     command: celery -A workers.celery_app.celery_app worker --loglevel=info --concurrency=4
     environment:
+      PYTHONPATH: /app   # DOSYALARI BULMASI İÇİN EKLENDİ
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+psycopg2://scrape:scrape@postgres:5432/scrapehub
       JAEGER_ENDPOINT: http://jaeger:4318/v1/traces
@@ -70,6 +72,7 @@ services:
     build: .
     command: celery -A workers.celery_app.celery_app flower --port=5555
     environment:
+      PYTHONPATH: /app   # DOSYALARI BULMASI İÇİN EKLENDİ
       REDIS_URL: redis://redis:6379/0
     ports:
       - "5555:5555"

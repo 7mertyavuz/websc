@@ -21,11 +21,12 @@
 12. [Incremental (artımlı) güncelleme](#12-incremental-artımlı-güncelleme)
 13. [Dayanıklılık: retry + dead-letter](#13-dayanıklılık-retry--dead-letter)
 14. [İzleme: Flower](#14-i̇zleme-flower)
-15. [Çalıştırma kılavuzu (3 mod)](#15-çalıştırma-kılavuzu)
-16. [Test stratejisi](#16-test-stratejisi)
-17. [Konfigürasyon (tüm env değişkenleri)](#17-konfigürasyon)
-18. [Sık sorulan sorular](#18-sık-sorulan-sorular)
-19. [Etik ve yasal](#19-etik-ve-yasal)
+15. [Web Arayüzü (Kontrol Paneli)](#15-web-arayüzü-kontrol-paneli)
+16. [Çalıştırma kılavuzu (3 mod)](#16-çalıştırma-kılavuzu)
+17. [Test stratejisi](#17-test-stratejisi)
+18. [Konfigürasyon (tüm env değişkenleri)](#18-konfigürasyon)
+19. [Sık sorulan sorular](#19-sık-sorulan-sorular)
+20. [Etik ve yasal](#20-etik-ve-yasal
 
 ---
 
@@ -105,7 +106,11 @@ Diyelim `POST /scrape {"max_pages": 5, "chunk_size": 10}` gönderdin. Adım adı
 ```
 ScrapeProjem/
 ├── app/
-│   └── main.py            # FastAPI: dış dünyaya açılan kapı (endpoint'ler)
+│   └── main.py            # FastAPI: dış dünyaya açılan kapı (endpoint'ler + frontend servisi)
+├── frontend/
+│   ├── index.html         # Web kontrol paneli
+│   ├── styles.css         # Karanlık tema CSS
+│   └── app.js             # Vanilla JS dashboard mantığı
 ├── workers/
 │   ├── celery_app.py      # Celery yapılandırması (broker, retry, rate limit ayarları)
 │   └── tasks.py           # Asıl görevler: discover_catalog + scrape_book
@@ -373,7 +378,34 @@ celery -A workers.celery_app.celery_app flower --port=5555
 
 ---
 
-## 15. Çalıştırma kılavuzu
+## 15. Web Arayüzü (Kontrol Paneli)
+
+**Dosyalar:** `frontend/index.html`, `frontend/styles.css`, `frontend/app.js`, `app/main.py` (static mount + CORS)
+
+API'ye entegre, modern ve karanlık tema bir kontrol paneli eklendi. `docker compose up` veya `uvicorn app.main:app` çalıştırdıktan sonra tarayıcıdan `http://localhost:8000` adresine giderek kullanabilirsiniz.
+
+Arayüz üzerinden yapabilecekleriniz:
+
+- **Dashboard:** DB'deki kitap sayısı, işlenen/başarısız sayfa, dead-letter derinliği ve ham Prometheus metrikleri.
+- **Kazıma Başlat:**
+  - Katalog kazıma (start URL, max sayfa, chunk boyutu, webhook).
+  - Tek URL kazıma (force seçeneği ile Bloom Filter'ı atla).
+  - AI destekli dinamik kazıma (Playwright + Llama).
+- **Görevler:** Celery task ID ile durum sorgulama ve son görev geçmişi.
+- **Kitaplar:** Veritabanındaki kitapları tablo halinde görüntüleme ve sayfalama.
+- **Dead Letter:** Başarısız görevleri ve hata mesajlarını inceleme.
+- **Sağlık:** Redis ve PostgreSQL bağlantı durumu.
+
+Teknik detaylar:
+
+- FastAPI `StaticFiles` ile `frontend/` dizini `/static` altında servis edilir.
+- `GET /` isteği `frontend/index.html` dosyasını döndürür.
+- CORS açıktır; frontend ayrı bir domainden de çalışabilir.
+- API Key, tarayıcının `localStorage`'ında saklanır; sayfa yenilense bile korunur.
+
+---
+
+## 16. Çalıştırma kılavuzu
 
 ### Mod 1 — Sıfır altyapı (en kolay)
 Redis/Celery KURMADAN tüm pipeline'ı **senkron** çalıştırır (öğrenmek için ideal):
@@ -405,7 +437,7 @@ celery -A workers.celery_app.celery_app flower --port=5555                      
 
 ---
 
-## 16. Test stratejisi
+## 17. Test stratejisi
 
 ```bash
 pytest -q
@@ -423,6 +455,7 @@ Her test öncesi tablolar sıfırlanır.
 | `test_discover.py` | Chunk dağıtımı (eager mod): 5 kitap → 3 chunk → hepsi DB'de; per-url fallback |
 | `test_incremental.py` | Domain-bazlı gecikme + `content_changed` (yeni→aynı→değişti) |
 | `test_deadletter.py` | Fetch hatası `FetchError` fırlatır; `on_failure` dead-letter'a yazar |
+| `test_main.py` | API endpoint'leri (frontend, stats, books, health, metrics, yetkilendirme) |
 
 Ayrıca `tests/verify_bloom.py` (test değil, elle çalıştırılır): **canlı** bir Redis Stack'e
 karşı `backend == "redis-bloom"` ve `BF.ADD/EXISTS` davranışını kanıtlar:
@@ -432,7 +465,7 @@ REDIS_URL=redis://localhost:6379/0 python tests/verify_bloom.py
 
 ---
 
-## 17. Konfigürasyon
+## 18. Konfigürasyon
 
 Tüm ayarlar `core/config.py`'da toplanır; her biri bir env değişkeninden okunur ve makul bir
 default'a sahiptir (hiçbir şey ayarlamadan çalışır).
@@ -458,7 +491,7 @@ default'a sahiptir (hiçbir şey ayarlamadan çalışır).
 
 ---
 
-## 18. Sık sorulan sorular
+## 19. Sık sorulan sorular
 
 **S: Neden LLM parser kaldırıldı?**
 C: API anahtarı/maliyet gerektiriyordu ve deterministik değildi. Yerine gelen çok kademeli
@@ -482,7 +515,7 @@ C: Küçük demolarda 1 (per-url, izlemesi kolay). Büyük ölçekte 10–50 ara
 
 ---
 
-## 19. Etik ve yasal
+## 20. Etik ve yasal
 
 - Hedef site (books.toscrape.com) scraping pratiği için **kasıtla** yayınlanmıştır.
 - `core/fetcher.py` **robots.txt'e saygı** duyar ve **nezaket gecikmesi** uygular.

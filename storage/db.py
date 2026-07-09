@@ -70,6 +70,32 @@ def count_books() -> int:
     with session_scope() as s:
         return s.query(BookRow).count()
 
+
+def get_books(limit: int = 50, offset: int = 0) -> tuple[list[Book], int]:
+    """Kitapları sayfalayarak döndür; toplam kayıt sayısını da ver."""
+    with session_scope() as s:
+        rows = (
+            s.query(BookRow)
+            .order_by(BookRow.id.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+        total = s.query(BookRow).count()
+        books = [
+            Book(
+                title=r.title,
+                price=r.price,
+                availability=r.availability,
+                rating=r.rating,
+                url=r.url,
+                description=r.description,
+            )
+            for r in rows
+        ]
+        return books, total
+
+
 def ping_db() -> bool:
     with _engine.connect() as conn:
         conn.execute(text("SELECT 1"))

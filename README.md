@@ -43,14 +43,33 @@ curl -X POST localhost:8000/scrape \
      -d '{"max_pages": 5, "chunk_size": 10}'
 (Not: BENIM_GIZLI_SIFREM_123 değerini kendi .env dosyanıza göre değiştirin).
 
+🖥️ Web Arayüzü (Yeni)
+Artık API'ye entegre, modern ve karanlık tema bir kontrol paneli mevcut. Docker veya uvicorn ile API'yi başlattıktan sonra:
+
+http://localhost:8000
+
+Arayüz üzerinden yapabilecekleriniz:
+- Dashboard: Kitap sayısı, işlenen/başarısız sayfa, dead-letter ve Prometheus metrikleri.
+- Kazıma Başlat: Katalog kazıma, tek URL kazıma, AI destekli dinamik kazıma, webhook ve force parametreleri.
+- Görevler: Celery task durumu sorgulama ve son görev geçmişi.
+- Kitaplar: Veritabanındaki kitapları tablo halinde görme ve sayfalama.
+- Dead Letter: Başarısız olan görevleri inceleme.
+- Sağlık: Redis ve PostgreSQL bağlantı durumu.
+
+API Key, arayüzün sol alt köşesinden girilip tarayıcının yerel depolamasında (localStorage) saklanır.
+
 API Uç Noktaları
 Tüm POST ve GET istekleri yetkilendirme veya izleme odaklıdır. POST isteklerinde header olarak X-API-Key zorunludur.
 
 Uç Nokta	Metot	Açıklama
+/	GET	Web arayüzünü (index.html) servis eder.
 /scrape	POST	Katalog tarama işini kuyruğa atar. X-API-Key zorunludur.
+/scrape-dynamic	POST	AI destekli katalog kazıma. X-API-Key zorunludur.
 /scrape-one	POST	Tek bir URL'i kazır. force=true verilirse Bloom Filter'ı atlar.
 /status/{task_id}	GET	Celery görev durumunu canlı sorgular.
 /stats	GET	DB'deki kayıt sayısı + dedup backend durumu.
+/books	GET	Veritabanındaki kitapları sayfalayarak döndürür (limit/offset).
+/dead-letter	GET	Dead-letter kuyruğundaki başarısız görevleri listeler.
 /health	GET	Derin Health-Check: Redis ve PostgreSQL'e ping atıp 200 veya 503 döner.
 /metrics	GET	Prometheus metrikleri (Başarılı çekim, hata oranları, dead-letter kuyruğu).
 Konfigürasyon ve Proxy Ayarları (.env)

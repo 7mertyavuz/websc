@@ -153,6 +153,7 @@ def discover_catalog(
             "webhook_attached": bool(webhook_url),
             "books_dispatched": len(book_urls),
             "chunks": num_chunks,
+            "chunk_size": chunk_size,
             "group_id": getattr(group_result, "id", None),
         }
 

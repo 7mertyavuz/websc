@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScrapeHub — Web Scraping Kontrol Paneli</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo">SH</div>
+                <div>
+                    <h1>ScrapeHub</h1>
+                    <span>Kontrol Paneli</span>
+                </div>
+            </div>
+            <nav class="nav">
+                <a href="#dashboard" class="nav-item active" data-page="dashboard">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                    Dashboard
+                </a>
+                <a href="#scrape" class="nav-item" data-page="scrape">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16"/></svg>
+                    Kazıma Başlat
+                </a>
+                <a href="#tasks" class="nav-item" data-page="tasks">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    Görevler
+                </a>
+                <a href="#books" class="nav-item" data-page="books">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    Kitaplar
+                </a>
+                <a href="#deadletter" class="nav-item" data-page="deadletter">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    Dead Letter
+                </a>
+                <a href="#health" class="nav-item" data-page="health">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    Sağlık
+                </a>
+            </nav>
+            <div class="api-key-box">
+                <label for="api-key">API Key</label>
+                <input type="password" id="api-key" placeholder="X-API-Key" />
+                <button id="save-key" class="btn btn-sm">Kaydet</button>
+            </div>
+        </aside>
+
+        <main class="main">
+            <header class="topbar">
+                <h2 id="page-title">Dashboard</h2>
+                <div class="topbar-actions">
+                    <button id="refresh-btn" class="btn btn-icon" title="Yenile">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </button>
+                </div>
+            </header>
+
+            <div class="content">
+                <!-- Dashboard -->
+                <section id="page-dashboard" class="page active">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon blue">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                            </div>
+                            <div>
+                                <div class="stat-value" id="stat-books">-</div>
+                                <div class="stat-label">DB'deki Kitap</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            </div>
+                            <div>
+                                <div class="stat-value" id="stat-processed">-</div>
+                                <div class="stat-label">İşlenen Sayfa</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon red">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </div>
+                            <div>
+                                <div class="stat-value" id="stat-failed">-</div>
+                                <div class="stat-label">Başarısız Fetch</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon purple">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            </div>
+                            <div>
+                                <div class="stat-value" id="stat-deadletter">-</div>
+                                <div class="stat-label">Dead Letter</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <h3>Sistem Durumu</h3>
+                        <div class="health-grid" id="health-grid">
+                            <div class="health-item loading">Kontrol ediliyor...</div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <h3>Prometheus Metrikleri</h3>
+                        <pre id="metrics-output" class="code-block">Yükleniyor...</pre>
+                    </div>
+                </section>
+
+                <!-- Scrape -->
+                <section id="page-scrape" class="page">
+                    <div class="panel">
+                        <h3>Katalog Kazıma</h3>
+                        <form id="scrape-form" class="form-grid">
+                            <div class="form-group">
+                                <label>Başlangıç URL</label>
+                                <input type="url" id="scrape-start-url" placeholder="https://books.toscrape.com/catalogue/page-1.html" />
+                            </div>
+                            <div class="form-group">
+                                <label>Max Sayfa</label>
+                                <input type="number" id="scrape-max-pages" value="5" min="1" max="100" />
+                            </div>
+                            <div class="form-group">
+                                <label>Chunk Boyutu</label>
+                                <input type="number" id="scrape-chunk-size" value="10" min="1" max="100" />
+                            </div>
+                            <div class="form-group">
+                                <label>Webhook URL (opsiyonel)</label>
+                                <input type="url" id="scrape-webhook" placeholder="https://example.com/webhook" />
+                            </div>
+                            <div class="form-group full">
+                                <label class="checkbox">
+                                    <input type="checkbox" id="scrape-ai" />
+                                    <span>AI Destekli Dinamik Kazıma (Playwright + Llama)</span>
+                                </label>
+                            </div>
+                            <div class="form-actions full">
+                                <button type="submit" class="btn btn-primary">Kazımayı Başlat</button>
+                            </div>
+                        </form>
+                        <div id="scrape-result" class="result-box hidden"></div>
+                    </div>
+
+                    <div class="panel">
+                        <h3>Tek URL Kazıma</h3>
+                        <form id="scrape-one-form" class="form-grid">
+                            <div class="form-group">
+                                <label>URL</label>
+                                <input type="url" id="scrape-one-url" placeholder="https://books.toscrape.com/catalogue/kitap.html" required />
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox">
+                                    <input type="checkbox" id="scrape-one-force" />
+                                    <span>Bloom Filter'ı atla (force)</span>
+                                </label>
+                            </div>
+                            <div class="form-actions full">
+                                <button type="submit" class="btn btn-primary">Kazı</button>
+                            </div>
+                        </form>
+                        <div id="scrape-one-result" class="result-box hidden"></div>
+                    </div>
+                </section>
+
+                <!-- Tasks -->
+                <section id="page-tasks" class="page">
+                    <div class="panel">
+                        <h3>Görev Durumu Sorgula</h3>
+                        <div class="form-inline">
+                            <input type="text" id="task-id-input" placeholder="Task ID" class="flex-grow" />
+                            <button id="task-check-btn" class="btn btn-primary">Sorgula</button>
+                        </div>
+                        <pre id="task-result" class="code-block hidden"></pre>
+                    </div>
+                    <div class="panel">
+                        <h3>Son Görevler</h3>
+                        <div id="recent-tasks" class="empty-state">Henüz görev başlatılmadı.</div>
+                    </div>
+                </section>
+
+                <!-- Books -->
+                <section id="page-books" class="page">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Veritabanındaki Kitaplar</h3>
+                            <div class="pagination">
+                                <button id="books-prev" class="btn btn-sm" disabled>Önceki</button>
+                                <span id="books-page-info">Sayfa 1</span>
+                                <button id="books-next" class="btn btn-sm" disabled>Sonraki</button>
+                            </div>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Başlık</th>
+                                        <th>Fiyat</th>
+                                        <th>Stok</th>
+                                        <th>Puan</th>
+                                        <th>URL</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="books-tbody">
+                                    <tr><td colspan="5" class="text-center">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Dead Letter -->
+                <section id="page-deadletter" class="page">
+                    <div class="panel">
+                        <h3>Dead Letter Kuyruğu</h3>
+                        <pre id="deadletter-output" class="code-block">Yükleniyor...</pre>
+                    </div>
+                </section>
+
+                <!-- Health -->
+                <section id="page-health" class="page">
+                    <div class="panel">
+                        <h3>Sistem Sağlığı</h3>
+                        <pre id="health-output" class="code-block">Yükleniyor...</pre>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div id="toast-container"></div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
