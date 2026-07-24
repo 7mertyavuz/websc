@@ -1,113 +1,120 @@
-# ScrapeHub — Kurumsal (Enterprise) Web Scraping Pipeline
+# ScrapeHub — AI-Augmented Web Scraping Pipeline
 
-[![CI](https://github.com/7mertyavuz/websc/actions/workflows/ci.yml/badge.svg)](https://github.com/7mertyavuz/websc/actions/workflows/ci.yml)
+A production-ready, horizontally scalable web scraping pipeline built with **FastAPI**, **Celery**, **Redis**, **PostgreSQL**, and **OpenTelemetry**. It handles catalog crawling, duplicate filtering, resilient fetching, multi-stage parsing, and persistent storage — with an optional AI agentic mode powered by Playwright + Ollama.
 
-Mikroservis mantığıyla çalışan, yatayda ölçeklenebilir, WAF (Datadome/Cloudflare) korumalarını aşabilen ve proxy maliyetlerini optimize eden gelişmiş bir web scraping mimarisidir. 
-
-Eğitim amaçlı `books.toscrape.com` üzerinde kurgulanmış olsa da, altyapısı gerçek dünyadaki en zorlu sitelerden her gün yüz binlerce ilan/ürün çekmek için **Kurumsal (Enterprise)** standartlarda tasarlanmıştır.
-
-> 📖 **Mimariyi derinlemesine anlamak için → [DOKUMANTASYON.md](DOKUMANTASYON.md)**
+> **Status:** This project uses `books.toscrape.com` as an educational target, but the architecture is designed for enterprise-grade scraping workloads.
 
 ---
 
-## 🚀 Sürüm Güncellemesi: Neler Değişti? (Eski Sürüme Göre)
+## English
 
-Bu sürümde, sistemi "lokal test" ortamından "canlı (production)" ortamına taşımak için devasa mimari değişiklikler yapılmıştır:
+### What is ScrapeHub?
 
-1. **🔒 X-API-Key Güvenliği:** Eskiden dış dünyaya açık olan `/scrape` endpoint'leri artık `X-API-Key` başlığı ile korunmaktadır. Kötü niyetli kişilerin proxy bütçenizi tüketmesi engellendi.
-2. **🛡️ Stealth & WAF Bypass (curl_cffi):** Standart `httpx` kütüphanesi kaldırıldı. Yerine, güvenlik duvarlarını (Datadome/Cloudflare) aşmak için gerçek Google Chrome TLS parmak izini (JA3) taklit eden `curl_cffi` entegre edildi. Sistem artık bir bot değil, "Chrome 120" olarak görünüyor.
-3. **🌊 Proxy Şelalesi (Waterfall):** Tek proxy kullanmak yerine "Şelale" mantığı getirildi. Sistem önce bedava IP'yi dener; banlanırsa Ucuz Proxy'e (Tier 1), o da banlanırsa Pahalı Mobil Proxy'e (Tier 2) geçer. Bütçe %80 oranında optimize edildi.
-4. **⚡ Worker-Safe Veritabanı (Race Condition Fix):** Eskiden iki Celery worker'ı aynı anda aynı URL'yi yazmaya çalıştığında sistem çöküyordu (Race Condition). Artık doğrudan **PostgreSQL `ON CONFLICT`** native özelliği kullanılarak, saniyede binlerce isteğe dayanıklı kusursuz Upsert (Güncelle/Ekle) yapısı kuruldu. (SQLite desteği performans için tamamen bırakıldı).
-5. **🎯 Force (Zorla) Parametresi:** Bloom Filter (Tekilleştirme) bir URL'yi gördüğünde bir daha çekmiyordu. Artık API'den `force=True` göndererek istediğiniz ilanı zorla güncelletebilirsiniz.
+ScrapeHub is a distributed web scraping pipeline that turns a website into structured data stored in a database. It is designed around five independent layers:
 
----
-Hızlı Başlangıç (Docker ile Tam Dağıtık Mod)
-Sistem artık native PostgreSQL gücü kullandığı için docker-compose ile çalıştırılması zorunludur.
+1. **Orchestrator** — FastAPI gateway that receives requests and queues work.
+2. **Queue** — Redis-backed Celery broker for distributing tasks.
+3. **Deduplication** — Bloom filter + content hash to avoid redundant work.
+4. **Fetch & Parse** — `curl_cffi` for stealth, Playwright for JS-heavy pages, and a robust fallback parser.
+5. **Storage** — SQLAlchemy + PostgreSQL/SQLite with atomic upserts.
 
-Bash
+### Highlights
+
+- **Microservice-oriented:** API, workers, Redis, Postgres, and Flower each run as separate services.
+- **Horizontal scaling:** Add more Celery workers to increase throughput.
+- **Resilient fetching:** Retry with exponential backoff, jitter, and domain-based politeness delays.
+- **Deduplication:** RedisBloom when available, in-memory fallback otherwise.
+- **Incremental mode:** Re-fetch only when page content changes.
+- **AI agentic mode:** Dynamic scraping via Browserless Chrome + Ollama LLM.
+- **Dead-letter queue:** Failed tasks are captured for later inspection.
+- **Observability:** Prometheus metrics, Flower task monitoring, and Jaeger distributed tracing.
+- **Web dashboard:** Dark-themed control panel served at `http://localhost:8000`.
+
+### Quick Start
+
+#### Option A — Zero-infrastructure (local SQLite)
+
+```bash
+pip install -r requirements.txt
+python run_local.py --pages 2
+```
+
+#### Option B — Full distributed mode (Docker)
+
+```bash
 docker compose up --build
-Servisler ayağa kalktıktan sonra:
+```
 
-API: http://localhost:8000
+Then start a scrape:
 
-Flower (Görev İzleme): http://localhost:5555
+```bash
+curl -X POST http://localhost:8000/scrape \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: BENIM_GIZLI_SIFREM_123" \
+  -d '{"max_pages": 5, "chunk_size": 10}'
+```
 
-Prometheus Metrikleri: http://localhost:8000/metrics
+Check progress:
 
-Yeni API anahtarı korumasıyla bir kazıma işi başlatmak için:
+```bash
+curl http://localhost:8000/stats
+curl http://localhost:8000/health
+```
 
-Bash
-curl -X POST localhost:8000/scrape \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: BENIM_GIZLI_SIFREM_123" \
-     -d '{"max_pages": 5, "chunk_size": 10}'
-(Not: BENIM_GIZLI_SIFREM_123 değerini kendi .env dosyanıza göre değiştirin).
+Open the dashboard:
 
-🖥️ Web Arayüzü (Yeni)
-Artık API'ye entegre, modern ve karanlık tema bir kontrol paneli mevcut. Docker veya uvicorn ile API'yi başlattıktan sonra:
+- **Web UI:** http://localhost:8000
+- **Flower:** http://localhost:5555
+- **Metrics:** http://localhost:8000/metrics
+- **Jaeger:** http://localhost:16686
 
-http://localhost:8000
+### API Endpoints
 
-Arayüz üzerinden yapabilecekleriniz:
-- Dashboard: Kitap sayısı, işlenen/başarısız sayfa, dead-letter ve Prometheus metrikleri.
-- Kazıma Başlat: Katalog kazıma, tek URL kazıma, AI destekli dinamik kazıma, webhook ve force parametreleri.
-- Görevler: Celery task durumu sorgulama ve son görev geçmişi.
-- Kitaplar: Veritabanındaki kitapları tablo halinde görme ve sayfalama.
-- Dead Letter: Başarısız olan görevleri inceleme.
-- Sağlık: Redis ve PostgreSQL bağlantı durumu.
+All `POST` endpoints require the `X-API-Key` header.
 
-API Key, arayüzün sol alt köşesinden girilip tarayıcının yerel depolamasında (localStorage) saklanır.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Web dashboard (`index.html`). |
+| `/scrape` | POST | Queue catalog crawling (standard mode). |
+| `/scrape-dynamic` | POST | Queue catalog crawling (AI / Playwright mode). |
+| `/scrape-one` | POST | Scrape a single URL; `force=true` skips deduplication. |
+| `/status/{task_id}` | GET | Celery task status. |
+| `/stats` | GET | Book count + deduplication backend info. |
+| `/books` | GET | Paginated books from the database. |
+| `/dead-letter` | GET | Failed tasks captured for inspection. |
+| `/health` | GET | Deep health check: Redis + PostgreSQL. |
+| `/metrics` | GET | Prometheus metrics endpoint. |
 
-API Uç Noktaları
-Tüm POST ve GET istekleri yetkilendirme veya izleme odaklıdır. POST isteklerinde header olarak X-API-Key zorunludur.
+### Configuration
 
-Uç Nokta	Metot	Açıklama
-/	GET	Web arayüzünü (index.html) servis eder.
-/scrape	POST	Katalog tarama işini kuyruğa atar. X-API-Key zorunludur.
-/scrape-dynamic	POST	AI destekli katalog kazıma. X-API-Key zorunludur.
-/scrape-one	POST	Tek bir URL'i kazır. force=true verilirse Bloom Filter'ı atlar.
-/status/{task_id}	GET	Celery görev durumunu canlı sorgular.
-/stats	GET	DB'deki kayıt sayısı + dedup backend durumu.
-/books	GET	Veritabanındaki kitapları sayfalayarak döndürür (limit/offset).
-/dead-letter	GET	Dead-letter kuyruğundaki başarısız görevleri listeler.
-/health	GET	Derin Health-Check: Redis ve PostgreSQL'e ping atıp 200 veya 503 döner.
-/metrics	GET	Prometheus metrikleri (Başarılı çekim, hata oranları, dead-letter kuyruğu).
-Konfigürasyon ve Proxy Ayarları (.env)
-Aşağıdaki değişkenleri sunucunuzdaki .env dosyasına veya docker-compose.yml içine ekleyebilirsiniz.
+Key environment variables (see `core/config.py` for the full list):
 
-Değişken	Default	Açıklama
-API_KEY	BENIM_GIZLI_SIFREM_123	FastAPI endpoints koruma şifresi.
-PROXY_TIER_1	(boş)	Şelale Aşama 1: Datacenter veya Scrapoxy URL'i (Örn: http://localhost:8888)
-PROXY_TIER_2	(boş)	Şelale Aşama 2: Korumalı siteler için Residential / Mobil IP adresi.
-SCRAPE_BASE_URL	books.toscrape.com	Hedef site adresi.
-MAX_CONCURRENCY	4	Worker başına saniyede işlenecek görev limiti.
-INCREMENTAL	false	true ise Bloom filter atlanır, içerik değişimine (hash) bakılır.
-LOG_LEVEL	INFO	Log detay seviyesi (DEBUG, INFO, ERROR).
-Etik & Yasal UYARI
-Bu proje, izin veren hedeflerde (books.toscrape.com) doğru mühendisliği (kuyruk yönetimi, proxy şelalesi, stealth bypass) öğretmek içindir. Altyapı dünyanın en katı WAF'larını aşabilecek güce sahip olsa da, kullanım şartlarını (TOS) ihlal eden hedeflere yönelik izinsiz scraping eylemlerinin hukuki sorumluluğu tamamen kullanıcıya aittir.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCRAPE_BASE_URL` | `https://books.toscrape.com/` | Target site |
+| `REDIS_URL` | `redis://localhost:6379/0` | Broker + Bloom filter |
+| `DATABASE_URL` | `sqlite:///scrapehub.db` | PostgreSQL recommended for production |
+| `API_KEY` | `BENIM_GIZLI_SIFREM_123` | FastAPI endpoint protection |
+| `REQUEST_DELAY` | `0.5` | Politeness delay between requests |
+| `MAX_CONCURRENCY` | `4` | Worker concurrency base |
+| `MAX_RETRIES` | `3` | Retry attempts for failed fetches |
+| `INCREMENTAL` | `false` | Only re-process when content changes |
+| `BROWSERLESS_URL` | `ws://localhost:3000` | Headless Chrome for AI mode |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Local LLM endpoint |
+| `JAEGER_ENDPOINT` | `http://localhost:4318/v1/traces` | OpenTelemetry traces |
 
-## Mimari (5 Katmanlı)
+### Testing
 
-```text
-  ┌──────────────┐   POST /scrape    ┌──────────────────┐
-  │   İstemci /   │ ───────────────► │  FastAPI (API)   │   Katman 1: Orkestratör
-  │   Cron job    │  (X-API-Key)     │   app/main.py    │
-  └──────────────┘                  └────────┬─────────┘
-                                              │ .delay()
-                                     ┌────────▼─────────┐
-                                     │  Redis (broker)  │   Katman 1: Kuyruk
-                                     └────────┬─────────┘
-                                              │
-                              ┌───────────────▼───────────────┐
-                              │   Celery Workers (xN)         │
-                              │   workers/tasks.py            │
-                              │                               │
-                              │  1. Dedup  (Bloom Filter)     │◄─ Katman 2
-                              │  2. Fetch  (Stealth + Proxy)  │◄─ Katman 3+4
-                              │  3. Parse  (Çok Kademeli)     │◄─ Katman 5
-                              │  4. Store  (ON CONFLICT)      │
-                              └───────────────┬───────────────┘
-                                              │
-                                     ┌────────▼──────────┐
-                                     │    PostgreSQL     │   Depolama
-                                     └───────────────────┘
+```bash
+pytest -q
+```
+
+Tests are isolated by `tests/conftest.py` using a temporary SQLite database and in-memory deduplication.
+
+### Ethical & Legal Notice
+
+This project is intended for educational use on permissive targets. `core/fetcher.py` respects `robots.txt` and applies politeness delays. The user is fully responsible for complying with the target site's Terms of Service and applicable data privacy laws (GDPR/KVKK) when scraping other domains.
+
+---
+
+*Türkçe versiyonu eklenmektedir...*
