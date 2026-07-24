@@ -117,4 +117,111 @@ This project is intended for educational use on permissive targets. `core/fetche
 
 ---
 
-*Türkçe versiyonu eklenmektedir...*
+## Türkçe
+
+### ScrapeHub Nedir?
+
+ScrapeHub, bir web sitesini yapılandırılmış veriye dönüştüren ve veritabanına yazan dağıtık bir web scraping pipeline'ıdır. Beş bağımsız katman üzerine kuruludur:
+
+1. **Orkestratör** — İstekleri alan ve işleri kuyruğa koyan FastAPI ağ geçidi.
+2. **Kuyruk** — Redis destekli Celery broker'ı ile görev dağıtımı.
+3. **Tekilleştirme** — Gereksiz işi önleyen Bloom filter + içerik hash'i.
+4. **Fetch & Parse** — Stealth için `curl_cffi`, JS ağırlıklı sayfalar için Playwright ve dayanıklı fallback parser.
+5. **Depolama** — Atomik upsert destekli SQLAlchemy + PostgreSQL/SQLite.
+
+### Öne Çıkan Özellikler
+
+- **Mikroservis odaklı:** API, worker'lar, Redis, Postgres ve Flower ayrı servisler olarak çalışır.
+- **Yatay ölçeklenebilir:** Daha fazla Celery worker ekleyerek throughput artırılır.
+- **Dayanıklı fetch:** Üstel backoff, jitter ve domain bazlı nezaket gecikmesiyle yeniden deneme.
+- **Tekilleştirme:** RedisBloom varsa kullanır, yoksa bellek içi fallback'e düşer.
+- **Artımlı mod:** Sayfa içeriği değiştiğinde yeniden işler.
+- **AI destekli mod:** Browserless Chrome + Ollama LLM ile dinamik kazıma.
+- **Dead-letter kuyruğu:** Başarısız görevler sonradan incelenmek üzere yakalanır.
+- **Gözlemlenebilirlik:** Prometheus metrikleri, Flower görev izleme ve Jaeger dağıtık izleme.
+- **Web dashboard:** `http://localhost:8000` adresinde sunulan karanlık tema kontrol paneli.
+
+### Hızlı Başlangıç
+
+#### Seçenek A — Sıfır altyapı (yerel SQLite)
+
+```bash
+pip install -r requirements.txt
+python run_local.py --pages 2
+```
+
+#### Seçenek B — Tam dağıtık mod (Docker)
+
+```bash
+docker compose up --build
+```
+
+Ardından bir kazıma işi başlatın:
+
+```bash
+curl -X POST http://localhost:8000/scrape \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: BENIM_GIZLI_SIFREM_123" \
+  -d '{"max_pages": 5, "chunk_size": 10}'
+```
+
+İlerlemeyi kontrol edin:
+
+```bash
+curl http://localhost:8000/stats
+curl http://localhost:8000/health
+```
+
+Arayüzleri açın:
+
+- **Web Arayüzü:** http://localhost:8000
+- **Flower:** http://localhost:5555
+- **Metrikler:** http://localhost:8000/metrics
+- **Jaeger:** http://localhost:16686
+
+### API Uç Noktaları
+
+Tüm `POST` uç noktaları `X-API-Key` header'ı gerektirir.
+
+| Uç Nokta | Metot | Açıklama |
+|----------|-------|----------|
+| `/` | GET | Web arayüzü (`index.html`). |
+| `/scrape` | POST | Katalog tarama (standart mod). |
+| `/scrape-dynamic` | POST | Katalog tarama (AI / Playwright modu). |
+| `/scrape-one` | POST | Tek URL kazıma; `force=true` dedup'u atlar. |
+| `/status/{task_id}` | GET | Celery görev durumu. |
+| `/stats` | GET | Kitap sayısı + tekilleştirme backend bilgisi. |
+| `/books` | GET | Veritabanındaki kitaplar (sayfalı). |
+| `/dead-letter` | GET | İnceleme için yakalanan başarısız görevler. |
+| `/health` | GET | Derin sağlık kontrolü: Redis + PostgreSQL. |
+| `/metrics` | GET | Prometheus metrik endpoint'i. |
+
+### Konfigürasyon
+
+Önemli ortam değişkenleri (tam liste için `core/config.py`):
+
+| Değişken | Default | Açıklama |
+|----------|---------|----------|
+| `SCRAPE_BASE_URL` | `https://books.toscrape.com/` | Hedef site |
+| `REDIS_URL` | `redis://localhost:6379/0` | Broker + Bloom filter |
+| `DATABASE_URL` | `sqlite:///scrapehub.db` | Üretimde PostgreSQL önerilir |
+| `API_KEY` | `BENIM_GIZLI_SIFREM_123` | FastAPI endpoint koruması |
+| `REQUEST_DELAY` | `0.5` | İstekler arası nezaket gecikmesi |
+| `MAX_CONCURRENCY` | `4` | Worker eşzamanlılık tabanı |
+| `MAX_RETRIES` | `3` | Başarısız fetch için yeniden deneme |
+| `INCREMENTAL` | `false` | Sadece içerik değiştiğinde yeniden işle |
+| `BROWSERLESS_URL` | `ws://localhost:3000` | AI modu için headless Chrome |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Yerel LLM endpoint'i |
+| `JAEGER_ENDPOINT` | `http://localhost:4318/v1/traces` | OpenTelemetry trace'leri |
+
+### Test
+
+```bash
+pytest -q
+```
+
+`tests/conftest.py` testleri izole eder: geçici SQLite veritabanı ve bellek içi tekilleştirme kullanır.
+
+### Etik & Yasal Uyarı
+
+Bu proje, izin veren hedeflerde eğitim amaçlı kullanım içindir. `core/fetcher.py`, `robots.txt`'e saygı duyar ve nezaket gecikmesi uygular. Başka domain'leri kazırken hedef sitenin Kullanım Koşulları ve ilgili veri gizliliği yasalarına (GDPR/KVKK) uyma sorumluluğu tamamen kullanıcıya aittir.
