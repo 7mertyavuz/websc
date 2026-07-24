@@ -1,8 +1,18 @@
 # ScrapeHub — AI-Augmented Web Scraping Pipeline
 
+[![CI](https://github.com/7mertyavuz/websc/actions/workflows/ci.yml/badge.svg)](https://github.com/7mertyavuz/websc/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+**[English](#english) | [Türkçe](#türkçe)**
+
 A production-ready, horizontally scalable web scraping pipeline built with **FastAPI**, **Celery**, **Redis**, **PostgreSQL**, and **OpenTelemetry**. It handles catalog crawling, duplicate filtering, resilient fetching, multi-stage parsing, and persistent storage — with an optional AI agentic mode powered by Playwright + Ollama.
 
 > **Status:** This project uses `books.toscrape.com` as an educational target, but the architecture is designed for enterprise-grade scraping workloads.
+> 
+> 📖 **Deep dive into the architecture → [DOKUMANTASYON.md](DOKUMANTASYON.md)**
+> 
+> 📖 **Mimariyi derinlemesine incelemek için → [DOKUMANTASYON.md](DOKUMANTASYON.md)**
 
 ---
 
@@ -225,3 +235,50 @@ pytest -q
 ### Etik & Yasal Uyarı
 
 Bu proje, izin veren hedeflerde eğitim amaçlı kullanım içindir. `core/fetcher.py`, `robots.txt`'e saygı duyar ve nezaket gecikmesi uygular. Başka domain'leri kazırken hedef sitenin Kullanım Koşulları ve ilgili veri gizliliği yasalarına (GDPR/KVKK) uyma sorumluluğu tamamen kullanıcıya aittir.
+
+---
+
+## Architecture
+
+```
+  ┌──────────────┐   POST /scrape    ┌──────────────────┐
+  │  Client /    │ ───────────────► │  FastAPI (API)   │   Layer 1: Orchestrator
+  │  Cron job    │  (X-API-Key)     │   app/main.py    │
+  └──────────────┘                  └────────┬─────────┘
+                                              │ .delay()
+                                     ┌────────▼─────────┐
+                                     │  Redis (broker)  │   Layer 1: Queue
+                                     └────────┬─────────┘
+                                              │
+                              ┌───────────────▼───────────────┐
+                              │   Celery Workers (xN)         │
+                              │   workers/tasks.py            │
+                              │                               │
+                              │  1. Dedup  (Bloom Filter)     │◄─ Layer 2
+                              │  2. Fetch  (curl_cffi /       │◄─ Layer 3+4
+                              │            Playwright + LLM)  │
+                              │  3. Parse  (JSON-LD/CSS/regex)│◄─ Layer 5
+                              │  4. Store  (ON CONFLICT)      │
+                              └───────────────┬───────────────┘
+                                              │
+                                     ┌────────▼──────────┐
+                                     │  PostgreSQL /     │   Storage
+                                     │  SQLite           │
+                                     └───────────────────┘
+```
+
+### Service Map (Docker Compose)
+
+| Service | Purpose | Port |
+|---------|---------|------|
+| `api` | FastAPI gateway + static dashboard | `8000` |
+| `worker` | Celery task workers | — |
+| `redis` | Broker + Bloom filter + dead-letter | `6379`, `8001` |
+| `postgres` | Persistent relational storage | `5432` |
+| `flower` | Celery monitoring UI | `5555` |
+| `browserless` | Headless Chrome for dynamic/AI mode | `3000` |
+| `jaeger` | Distributed tracing UI | `16686` |
+
+---
+
+*README: English / Türkçe — bilingual documentation.*
